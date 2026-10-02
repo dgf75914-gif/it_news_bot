@@ -1,0 +1,23 @@
+2026-10-02 18:08:32 | INFO    | ============================================================
+2026-10-02 18:08:32 | INFO    | Telegram IT News Bot v10.0 - Groq edition
+2026-10-02 18:08:32 | INFO    | ============================================================
+2026-10-02 18:08:32 | INFO    | Health server on port 10000
+2026-10-02 18:08:42 | ERROR   | getMe failed: {"ok":false,"error_code":401,"description":"Unauthorized"}
+2026-10-02 18:10:20 | INFO    | ============================================================
+2026-10-02 18:10:20 | INFO    | Telegram IT News Bot v10.0 - Groq edition
+2026-10-02 18:10:20 | INFO    | ============================================================
+2026-10-02 18:10:20 | INFO    | Health server on port 10000
+2026-10-02 18:10:29 | INFO    | Bot: @itnewstgfather_bot
+2026-10-02 18:10:29 | WARNING | Groq auth: 401 {"error":{"message":"Invalid API Key","type":"invalid_request_error","code":"invalid_api_key"}}
+
+2026-10-02 18:10:29 | INFO    | Scheduled posting at: 08:00, 15:00, 20:00
+2026-10-02 18:10:29 | INFO    | Feeds: 8 | Max/day: 3
+2026-10-02 18:11:45 | INFO    | Stopped by user.
+2026-10-02 18:12:18 | INFO    | ============================================================
+2026-10-02 18:12:18 | INFO    | Telegram IT News Bot v10.0 - Groq edition
+2026-10-02 18:12:18 | INFO    | ============================================================
+2026-10-02 18:12:18 | INFO    | Health server on port 10000
+2026-10-02 18:12:19 | INFO    | Bot: @itnewstgfather_bot
+2026-10-02 18:12:19 | INFO    | Groq: OK | 11 models available | using llama-3.3-70b-versatile
+2026-10-02 18:12:19 | INFO    | Scheduled posting at: 08:00, 15:00, 20:00
+2026-10-02 18:12:19 | INFO    | Feeds: 8 | Max/day: 3

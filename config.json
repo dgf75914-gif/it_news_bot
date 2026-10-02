@@ -1,0 +1,34 @@
+{
+  "telegram": {
+    "bot_token": "8563533447:AAFhInh1X3o9UYJpUaeeSt1F1O-A8fX9FQw",
+    "channel_id": -1004452653655
+  },
+  "claude": {
+    "api_key": "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",
+    "model": "llama-3.3-70b-versatile",
+    "enable_rewriting": true
+  },
+  "posts": {
+    "language": "en",
+    "interval_seconds": 43200,
+    "max_per_day": 3,
+    "post_at_times": ["08:00", "15:00", "20:00"],
+    "max_title_length": 120,
+    "max_description_length": 800
+  },
+  "filters": {
+    "skip_if_no_media": false,
+    "min_title_length": 15,
+    "blocked_keywords": ["sponsored", "advertisement", "promo", "hiring", "job"]
+  },
+  "rss_feeds": [
+    "https://www.producthunt.com/feed",
+    "https://hnrss.org/show",
+    "https://hnrss.org/newest",
+    "https://dev.to/feed/tag/tooling",
+    "https://dev.to/feed/tag/productivity",
+    "https://github.blog/feed/",
+    "https://techcrunch.com/feed/",
+    "https://www.theverge.com/rss/index.xml"
+  ]
+}
