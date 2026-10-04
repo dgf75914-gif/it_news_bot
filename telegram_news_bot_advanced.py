@@ -186,6 +186,7 @@ def extract_media_from_entry(entry):
 
 
 def fetch_og_image(article_url):
+    """Try og:image, twitter:image, then PNG favicon fallback (sz=256 — Telegram-friendly)."""
     try:
         r = requests.get(article_url, timeout=15, headers=HEADERS, allow_redirects=True)
         if r.ok:
@@ -203,9 +204,15 @@ def fetch_og_image(article_url):
                 return link["href"]
     except Exception as e:
         log.warning(f"og:image fetch failed: {e}")
+
+    # Fallback: Google favicon (PNG 256x256 — работает в Telegram)
+    domain = source_domain(article_url)
+    if domain and "." in domain:
+        fav = f"https://www.google.com/s2/favicons?domain={domain}&sz=256"
+        log.info(f"   -> using Google favicon fallback: {fav}")
+        return fav
+
     return None
-
-
 def fetch_articles():
     articles = []
     for url in RSS_FEEDS:
@@ -240,14 +247,13 @@ def ai_rewrite(title, summary, url):
     domain = source_domain(url)
     prompt = f"""You are a popular tech editor writing for an English-language IT Telegram channel called "IT step by step".
 
-Write an engaging review of the following IT project / news item.
+Write a short, engaging review of the following IT project / news item.
 
-STRICT STRUCTURE (3 paragraphs):
-- Paragraph 1: WHAT it is and WHY it stands out (2-3 sentences)
-- Paragraph 2: WHO it's for and HOW it works (3-4 sentences)
-- Paragraph 3: THE CATCH / pricing / verdict (2-3 sentences)
+STRICT STRUCTURE (2 paragraphs):
+- Paragraph 1: WHAT it is and WHY it stands out (hook the reader, 2-3 sentences)
+- Paragraph 2: WHO it's for and THE CATCH / pricing / verdict (2-3 sentences)
 
-TOTAL LENGTH: 200-300 words.
+TOTAL LENGTH: 100-140 words. Keep it TIGHT and PUNCHY — no filler.
 
 TONE: Friendly, confident, like explaining to a tech-savvy friend.
 
@@ -256,21 +262,26 @@ RULES:
 - NO URLs, NO hashtags, NO emojis
 - Do NOT start with "This article" or "In this post"
 - Do NOT repeat the title
-- Output ONLY the 3 paragraphs separated by blank lines
+- Output ONLY the 2 paragraphs separated by a blank line
 
 Title: {title}
 Summary: {summary}
 Source: {domain}
 
 Write now."""
-    models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+    models_to_try = [
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+    ]
     for model in models_to_try:
         for attempt in range(3):
             try:
-                r = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                r = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {AI_KEY}", "Content-Type": "application/json"},
                     json={"model": model, "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.85, "max_tokens": 1500}, timeout=90)
+                        "temperature": 0.85, "max_tokens": 800}, timeout=90,
+                )
                 if r.status_code in (429, 503):
                     log.warning(f"   [{model}] {r.status_code}, retry in 8s ({attempt+1}/3)")
                     time.sleep(8)
@@ -284,7 +295,7 @@ Write now."""
                     log.warning(f"   [{model}] no choices")
                     break
                 text = choices[0].get("message", {}).get("content", "").strip()
-                if not text or len(text) < 100:
+                if not text or len(text) < 80:
                     log.warning(f"   [{model}] too short")
                     break
                 log.info(f"   [{model}] Groq OK ({len(text)} chars)")
@@ -300,27 +311,34 @@ def build_caption(article, rewritten=None):
     title = escape_html(article["title"])
     url = article["url"]
     body = rewritten or article["summary"] or ""
+
     body = re.sub(r"^\s*[\.\,\;\:]+\s*", "", body)
     body = re.sub(r"\(\s*\d+\s*words?[^)]*\)", "", body, flags=re.I)
     body = re.sub(r"\(\s*\d+\s*[a-zA-Z]+\s*\)", "", body)
     body = re.sub(r"\s+", " ", body).strip()
+
     parts = [f'<a href="{url}">{title}</a>']
+
     if body:
         parts.append("")
         paras = [p.strip() for p in re.split(r"\n\s*\n", body) if p.strip()]
         if len(paras) < 2:
             sentences = re.split(r"(?<=[.!?])\s+", body)
-            if len(sentences) >= 6:
-                third = len(sentences) // 3
-                paras = [" ".join(sentences[:third]), " ".join(sentences[third:2*third]),
-                    " ".join(sentences[2*third:])]
-        for para in paras[:3]:
+            if len(sentences) >= 4:
+                half = len(sentences) // 2
+                paras = [
+                    " ".join(sentences[:half]),
+                    " ".join(sentences[half:]),
+                ]
+        for para in paras[:2]:
             if para and para[-1] not in ".!?":
                 para += "."
             parts.append(escape_html(para))
             parts.append("")
+
     while parts and parts[-1] == "":
         parts.pop()
+
     return "\n".join(parts)
 
 
