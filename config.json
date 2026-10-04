@@ -12,7 +12,7 @@
     "language": "en",
     "interval_seconds": 43200,
     "max_per_day": 3,
-    "post_at_times": ["08:00", "15:00", "20:00"],
+    "post_at_times": ["02:01", "15:00", "20:00"],
     "max_title_length": 120,
     "max_description_length": 800
   },
