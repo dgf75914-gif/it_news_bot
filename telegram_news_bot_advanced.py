@@ -702,8 +702,8 @@ def main():
                     articles = fetch_articles()
                     published = False
                     for art in articles:
-    if is_duplicate(art, history):
-        continue
+            if is_duplicate(art, history):
+                continue
                         log.info(f"Publishing: {art['title'][:70]}")
                         if publish(art):
                             history["posted_urls"].append(art["url"])
