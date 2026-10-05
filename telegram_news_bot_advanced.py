@@ -87,29 +87,39 @@ RSS_FEEDS = CONFIG.get("rss_feeds", [])
 
 
 def load_history():
+    empty = {"posted_urls": [], "posted_titles": [], "posted_images": [],
+             "daily": {}, "last_run": None, "last_slot": None}
     if not Path(HISTORY_FILE).exists():
-        return {"posted_urls": [], "daily": {}, "last_run": None, "last_slot": None}
+        return empty
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, list):
-            return {"posted_urls": data, "daily": {}, "last_run": None, "last_slot": None}
-        data.setdefault("posted_urls", [])
-        data.setdefault("daily", {})
-        data.setdefault("last_run", None)
-        data.setdefault("last_slot", None)
-        return data
-    except Exception:
-        return {"posted_urls": [], "daily": {}, "last_run": None, "last_slot": None}
-
+            if isinstance(data, list):
+                return {**empty, "posted_urls": data}
+            data.setdefault("posted_urls", [])
+            data.setdefault("posted_titles", [])
+            data.setdefault("posted_images", [])
+            data.setdefault("daily", {})
+            data.setdefault("last_run", None)
+            data.setdefault("last_slot", None)
+            return data
+    except Exception as e:
+        log.warning(f"History read failed: {e}. Starting fresh.")
+        return empty
 
 def save_history(h):
     h["last_run"] = datetime.now().isoformat()
     cutoff = datetime.now().timestamp() - 7 * 86400
-    h["daily"] = {d: c for d, c in h["daily"].items() if datetime.strptime(d, "%Y-%m-%d").timestamp() > cutoff}
+    h["daily"] = {
+        d: c for d, c in h["daily"].items()
+        if datetime.strptime(d, "%Y-%m-%d").timestamp() > cutoff
+    }
+    # Keep last 2000 items
+    h["posted_urls"] = h.get("posted_urls", [])[-2000:]
+    h["posted_titles"] = h.get("posted_titles", [])[-2000:]
+    h["posted_images"] = h.get("posted_images", [])[-2000:]
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(h, f, indent=2, ensure_ascii=False)
-
 
 def today_key():
     return datetime.now().strftime("%Y-%m-%d")
@@ -459,6 +469,67 @@ def send_text(text):
     return _tg_post("sendMessage", {"chat_id": CHANNEL_ID, "text": text,
         "parse_mode": "HTML", "disable_web_page_preview": True})
 
+def normalize_url(url):
+    """Strip tracking params, fragments, trailing slashes."""
+    try:
+        url = url.split("#")[0]
+        url = re.sub(r"[?&](utm_[^&]*|ref=[^&]*|source=[^&]*|fbclid=[^&]*)", "", url)
+        url = url.rstrip("/")
+        url = re.sub(r"^https?://", "", url)
+        url = re.sub(r"^www\.", "", url)
+        return url.lower()
+    except Exception:
+        return url or ""
+
+
+def normalize_title(title):
+    """Lowercase, strip punctuation, collapse spaces."""
+    t = (title or "").lower()
+    t = re.sub(r"[^\w\s]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def is_duplicate(article, history):
+    """Check if article is a duplicate by URL, title, or image."""
+    url_key = normalize_url(article.get("url", ""))
+    title_key = normalize_title(article.get("title", ""))
+    img_key = normalize_url(article.get("media_url") or "")
+
+    posted_urls = {normalize_url(u) for u in history.get("posted_urls", [])}
+    posted_titles = set(history.get("posted_titles", []))
+    posted_images = set(history.get("posted_images", []))
+
+    if url_key and url_key in posted_urls:
+        log.info(f"   -> SKIP: URL already posted")
+        return True
+
+    if title_key and len(title_key) > 15 and title_key in posted_titles:
+        log.info(f"   -> SKIP: title already posted")
+        return True
+
+    # Image duplication — только если картинка не favicon-aggregator (там могут быть повторы)
+    if img_key and img_key in posted_images:
+        AGGREGATOR_IMG_PARTS = ("google.com/s2/favicons", "duckduckgo.com/ip3/")
+        if not any(p in img_key for p in AGGREGATOR_IMG_PARTS):
+            log.info(f"   -> SKIP: image already posted")
+            return True
+
+    return False
+
+
+def remember_post(article, history):
+    """Add URL, title, image to history."""
+    url_key = normalize_url(article.get("url", ""))
+    title_key = normalize_title(article.get("title", ""))
+    img_key = normalize_url(article.get("media_url") or "")
+
+    if url_key:
+        history.setdefault("posted_urls", []).append(url_key)
+    if title_key:
+        history.setdefault("posted_titles", []).append(title_key)
+    if img_key:
+        history.setdefault("posted_images", []).append(img_key)
 
 def publish(article):
     mtype, murl = article["media_type"], article["media_url"]
