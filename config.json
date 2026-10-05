@@ -11,8 +11,8 @@
   "posts": {
     "language": "en",
     "interval_seconds": 43200,
-    "max_per_day": 10,
-    "post_at_times": ["02:08", "2:10", "2:12"],
+    "max_per_day": 13,
+    "post_at_times": ["16:24", "16:27", "16:30"],
     "max_title_length": 120,
     "max_description_length": 800
   },
@@ -22,13 +22,13 @@
     "blocked_keywords": ["sponsored", "advertisement", "promo", "hiring", "job"]
   },
   "rss_feeds": [
-    "https://www.producthunt.com/feed",
-    "https://hnrss.org/show",
-    "https://hnrss.org/newest",
-    "https://dev.to/feed/tag/tooling",
-    "https://dev.to/feed/tag/productivity",
-    "https://github.blog/feed/",
-    "https://techcrunch.com/feed/",
-    "https://www.theverge.com/rss/index.xml"
-  ]
+  "https://hnrss.org/show",
+  "https://hnrss.org/newest",
+  "https://dev.to/feed/tag/tooling",
+  "https://dev.to/feed/tag/productivity",
+  "https://dev.to/feed/tag/webdev",
+  "https://github.blog/feed/",
+  "https://techcrunch.com/feed/",
+  "https://www.theverge.com/rss/index.xml"
+]
 }
