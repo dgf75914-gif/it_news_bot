@@ -702,15 +702,15 @@ def main():
                     articles = fetch_articles()
                     published = False
                     for art in articles:
-            if is_duplicate(art, history):
-                continue
-                        log.info(f"Publishing: {art['title'][:70]}")
-                        if publish(art):
-                            history["posted_urls"].append(art["url"])
-                            history["posted_urls"] = history["posted_urls"][-2000:]
-                            increment_today(history)
-                            save_history(history)
-                            log.info(f"Posted. Today: {posted_today(history)}")
+                    if is_duplicate(art, history):
+                        continue
+                    log.info(f"Publishing: {art['title'][:70]}")
+                    if publish(art):
+                        history["posted_urls"].append(art["url"])
+                        history["posted_urls"] = history["posted_urls"][-2000:]
+                        increment_today(history)
+                        save_history(history)
+                        log.info(f"Posted. Today: {posted_today(history)}")                            log.info(f"Posted. Today: {posted_today(history)}")
                             published = True
                             break
                         else:
