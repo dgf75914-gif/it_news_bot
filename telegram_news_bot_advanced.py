@@ -538,29 +538,31 @@ def publish(article):
         og = fetch_og_image(article["url"])
         if og:
             mtype, murl = "image", og
-            log.info(f"   -> og:image found: {og[:70]}")
+            log.info(f"   -> image found: {og[:70]}")
+            article["media_url"] = og  # сохранить для истории
+
     if SKIP_NO_MEDIA and not murl:
         log.info("   -> skip (no media)")
         return False
+
     rewritten = None
     if USE_AI:
         log.info("   -> AI rewrite via Groq")
         rewritten = ai_rewrite(article["title"], article["summary"], article["url"])
         if not rewritten:
-            log.warning("   -> AI failed - SKIP this article")
+            log.warning("   -> AI failed — SKIP this article")
             return False
         log.info("   -> AI OK")
-    else:
-        log.info("   -> AI disabled")
+
     caption = build_caption(article, rewritten)
     if len(caption) > 1024:
         caption = caption[:1020] + "..."
+
     if mtype and murl:
         if send_media_with_caption(mtype, murl, caption):
             return True
         log.warning("   -> send with media failed, sending text only")
     return send_text(caption)
-
 
 def check_telegram():
     for attempt in range(3):
