@@ -129,10 +129,13 @@ def clean_html(text):
         return ""
     try:
         soup = BeautifulSoup(text, "html.parser")
-        return re.sub(r"\s+", " ", soup.get_text(separator=" ", strip=True))
+        cleaned = re.sub(r"\s+", " ", soup.get_text(separator=" ", strip=True))
     except Exception:
-        return re.sub(r"<[^>]+>", "", text or "").strip()
+        cleaned = re.sub(r"<[^>]+>", "", text or "").strip()
 
+    # Remove Hacker News prefixes: "Show HN:", "Ask HN:", "Tell HN:"
+    cleaned = re.sub(r"^(Show|Ask|Tell)\s+HN\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
 
 def escape_html(text):
     return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -186,7 +189,8 @@ def extract_media_from_entry(entry):
 
 
 def fetch_og_image(article_url):
-    """Try og:image, twitter:image, then PNG favicon fallback (sz=256 — Telegram-friendly)."""
+    """Try og:image → twitter:image → Microlink preview → favicon (non-aggregators)."""
+    # 1. Try og:image from HTML
     try:
         r = requests.get(article_url, timeout=15, headers=HEADERS, allow_redirects=True)
         if r.ok:
@@ -205,13 +209,29 @@ def fetch_og_image(article_url):
     except Exception as e:
         log.warning(f"og:image fetch failed: {e}")
 
-    # Fallback: Google favicon (PNG 256x256 — работает в Telegram)
+    # 2. Microlink — генерирует preview-картинку для любой страницы (в т.ч. Product Hunt)
+    try:
+        api = f"https://api.microlink.io/?url={article_url}&embed=image.url&meta=false"
+        r = requests.get(api, timeout=20, headers=HEADERS)
+        if r.ok:
+            data = r.json()
+            img = data.get("data", {}).get("image", {}).get("url")
+            if img and img.startswith("http"):
+                log.info(f"   -> Microlink preview: {img[:70]}")
+                return img
+    except Exception as e:
+        log.warning(f"Microlink failed: {e}")
+
+    # 3. Fallback: favicon для не-агрегаторов
     domain = source_domain(article_url)
-    if domain and "." in domain:
+    AGGREGATORS = {"producthunt.com", "news.ycombinator.com", "reddit.com",
+                   "hnrss.org", "betalist.com", "indiehackers.com"}
+    if domain and "." in domain and domain not in AGGREGATORS:
         fav = f"https://www.google.com/s2/favicons?domain={domain}&sz=256"
-        log.info(f"   -> using Google favicon fallback: {fav}")
+        log.info(f"   -> Google favicon: {fav}")
         return fav
 
+    log.info(f"   -> no image source found")
     return None
 def fetch_articles():
     articles = []
