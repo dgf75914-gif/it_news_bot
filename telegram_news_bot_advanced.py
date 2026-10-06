@@ -1,23 +1,39 @@
 #!/usr/bin/env python3
-"""Telegram IT News Bot v10.0 - Groq edition."""
+"""Telegram IT News Bot v11.0 — Groq + dedup + Microlink."""
 
-import os, json, sys, time, logging, re
+import os
+import json
+import sys
+import time
+import logging
+import re
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urlparse
-import requests, feedparser
+
+import requests
+import feedparser
 from bs4 import BeautifulSoup
 
 CONFIG_FILE = "config.json"
 HISTORY_FILE = "posts_history.json"
 LOG_FILE = "bot.log"
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"}
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36 ITNewsBot"
+}
 
 
 def setup_logging():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s",
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8"), logging.StreamHandler(sys.stdout)])
+        handlers=[
+            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
 
 
 log = logging.getLogger("bot")
@@ -33,6 +49,7 @@ def load_config():
             sys.exit(1)
     else:
         cfg = {"telegram": {}, "claude": {}, "posts": {}, "filters": {}, "rss_feeds": []}
+
     if os.environ.get("BOT_TOKEN"):
         cfg.setdefault("telegram", {})["bot_token"] = os.environ["BOT_TOKEN"]
     if os.environ.get("CHANNEL_ID"):
@@ -45,6 +62,7 @@ def load_config():
         cfg.setdefault("claude", {})["model"] = os.environ["GEMINI_MODEL"]
     if os.environ.get("ENABLE_AI"):
         cfg.setdefault("claude", {})["enable_rewriting"] = os.environ["ENABLE_AI"].lower() == "true"
+
     cfg.setdefault("posts", {})
     cfg["posts"].setdefault("interval_seconds", 43200)
     cfg["posts"].setdefault("max_per_day", 3)
@@ -52,16 +70,23 @@ def load_config():
     cfg["posts"].setdefault("max_title_length", 120)
     cfg["posts"].setdefault("max_description_length", 800)
     cfg["posts"].setdefault("language", "en")
+
     cfg.setdefault("filters", {})
     cfg["filters"].setdefault("skip_if_no_media", False)
     cfg["filters"].setdefault("min_title_length", 15)
     cfg["filters"].setdefault("blocked_keywords", [])
+
     if not cfg.get("rss_feeds"):
         cfg["rss_feeds"] = [
-            "https://www.producthunt.com/feed", "https://hnrss.org/show",
-            "https://hnrss.org/newest", "https://dev.to/feed/tag/tooling",
-            "https://dev.to/feed/tag/productivity", "https://github.blog/feed/",
-            "https://techcrunch.com/feed/", "https://www.theverge.com/rss/index.xml"]
+            "https://hnrss.org/show",
+            "https://hnrss.org/newest",
+            "https://dev.to/feed/tag/tooling",
+            "https://dev.to/feed/tag/productivity",
+            "https://github.blog/feed/",
+            "https://techcrunch.com/feed/",
+            "https://www.theverge.com/rss/index.xml",
+        ]
+
     return cfg
 
 
@@ -70,42 +95,53 @@ TG = CONFIG["telegram"]
 BOT_TOKEN = TG.get("bot_token", "")
 CHANNEL_ID = TG.get("channel_id")
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
 POSTS = CONFIG.get("posts", {})
 INTERVAL = POSTS.get("interval_seconds", 43200)
 MAX_PER_DAY = POSTS.get("max_per_day", 3)
 MAX_TITLE = POSTS.get("max_title_length", 120)
 MAX_DESC = POSTS.get("max_description_length", 800)
+
 AI = CONFIG.get("claude", {})
 AI_KEY = AI.get("api_key", "")
-AI_MODEL = AI.get("model", "llama-3.3-70b-versatile")
+AI_MODEL = AI.get("model", "openai/gpt-oss-120b")
 USE_AI = AI.get("enable_rewriting", False) and bool(AI_KEY) and len(AI_KEY) > 20
+
 FILTERS = CONFIG.get("filters", {})
 SKIP_NO_MEDIA = FILTERS.get("skip_if_no_media", False)
 MIN_TITLE = FILTERS.get("min_title_length", 15)
 BLOCKED = [k.lower() for k in FILTERS.get("blocked_keywords", [])]
+
 RSS_FEEDS = CONFIG.get("rss_feeds", [])
 
 
 def load_history():
-    empty = {"posted_urls": [], "posted_titles": [], "posted_images": [],
-             "daily": {}, "last_run": None, "last_slot": None}
+    empty = {
+        "posted_urls": [],
+        "posted_titles": [],
+        "posted_images": [],
+        "daily": {},
+        "last_run": None,
+        "last_slot": None,
+    }
     if not Path(HISTORY_FILE).exists():
         return empty
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-            if isinstance(data, list):
-                return {**empty, "posted_urls": data}
-            data.setdefault("posted_urls", [])
-            data.setdefault("posted_titles", [])
-            data.setdefault("posted_images", [])
-            data.setdefault("daily", {})
-            data.setdefault("last_run", None)
-            data.setdefault("last_slot", None)
-            return data
+        if isinstance(data, list):
+            return {**empty, "posted_urls": data}
+        data.setdefault("posted_urls", [])
+        data.setdefault("posted_titles", [])
+        data.setdefault("posted_images", [])
+        data.setdefault("daily", {})
+        data.setdefault("last_run", None)
+        data.setdefault("last_slot", None)
+        return data
     except Exception as e:
         log.warning(f"History read failed: {e}. Starting fresh.")
         return empty
+
 
 def save_history(h):
     h["last_run"] = datetime.now().isoformat()
@@ -114,12 +150,12 @@ def save_history(h):
         d: c for d, c in h["daily"].items()
         if datetime.strptime(d, "%Y-%m-%d").timestamp() > cutoff
     }
-    # Keep last 2000 items
     h["posted_urls"] = h.get("posted_urls", [])[-2000:]
     h["posted_titles"] = h.get("posted_titles", [])[-2000:]
     h["posted_images"] = h.get("posted_images", [])[-2000:]
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(h, f, indent=2, ensure_ascii=False)
+
 
 def today_key():
     return datetime.now().strftime("%Y-%m-%d")
@@ -142,10 +178,9 @@ def clean_html(text):
         cleaned = re.sub(r"\s+", " ", soup.get_text(separator=" ", strip=True))
     except Exception:
         cleaned = re.sub(r"<[^>]+>", "", text or "").strip()
-
-    # Remove Hacker News prefixes: "Show HN:", "Ask HN:", "Tell HN:"
     cleaned = re.sub(r"^(Show|Ask|Tell)\s+HN\s*:\s*", "", cleaned, flags=re.IGNORECASE)
     return cleaned.strip()
+
 
 def escape_html(text):
     return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -158,17 +193,78 @@ def source_domain(url):
         return "source"
 
 
+def normalize_url(url):
+    if not url:
+        return ""
+    try:
+        u = url.split("#")[0]
+        u = re.sub(r"[?&](utm_[^&]*|ref=[^&]*|source=[^&]*|fbclid=[^&]*)", "", u)
+        u = u.rstrip("/")
+        u = re.sub(r"^https?://", "", u)
+        u = re.sub(r"^www\.", "", u)
+        return u.lower()
+    except Exception:
+        return url or ""
+
+
+def normalize_title(title):
+    t = (title or "").lower()
+    t = re.sub(r"[^\w\s]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def is_duplicate(article, history):
+    url_key = normalize_url(article.get("url", ""))
+    title_key = normalize_title(article.get("title", ""))
+    img_key = normalize_url(article.get("media_url") or "")
+
+    posted_urls = {normalize_url(u) for u in history.get("posted_urls", [])}
+    posted_titles = set(history.get("posted_titles", []))
+    posted_images = set(history.get("posted_images", []))
+
+    if url_key and url_key in posted_urls:
+        log.info("   -> SKIP: URL already posted")
+        return True
+
+    if title_key and len(title_key) > 15 and title_key in posted_titles:
+        log.info("   -> SKIP: title already posted")
+        return True
+
+    if img_key and img_key in posted_images:
+        AGGREGATOR_IMG_PARTS = ("google.com/s2/favicons", "duckduckgo.com/ip3/")
+        if not any(p in img_key for p in AGGREGATOR_IMG_PARTS):
+            log.info("   -> SKIP: image already posted")
+            return True
+
+    return False
+
+
+def remember_post(article, history):
+    u = normalize_url(article.get("url", ""))
+    t = normalize_title(article.get("title", ""))
+    i = normalize_url(article.get("media_url") or "")
+    if u:
+        history.setdefault("posted_urls", []).append(u)
+    if t:
+        history.setdefault("posted_titles", []).append(t)
+    if i:
+        history.setdefault("posted_images", []).append(i)
+
+
 def extract_media_from_entry(entry):
     for enc in entry.get("enclosures", []) or []:
         href = enc.get("href") or enc.get("url") or ""
         typ = enc.get("type", "")
         if typ.startswith("video/") or href.endswith(".mp4"):
             return ("video", href)
+
     for enc in entry.get("enclosures", []) or []:
         href = enc.get("href") or enc.get("url") or ""
         typ = enc.get("type", "")
         if typ.startswith("image/"):
             return ("image", href)
+
     for m in entry.get("media_content", []) or []:
         url = m.get("url")
         medium = m.get("medium", "")
@@ -179,9 +275,11 @@ def extract_media_from_entry(entry):
             return ("video", url)
         if medium == "image" or typ.startswith("image/"):
             return ("image", url)
+
     for t in entry.get("media_thumbnail", []) or []:
         if t.get("url"):
             return ("image", t["url"])
+
     html = ""
     if entry.get("content"):
         html = entry["content"][0].get("value", "")
@@ -195,12 +293,11 @@ def extract_media_from_entry(entry):
                 return ("image", img["src"])
         except Exception:
             pass
+
     return (None, None)
 
 
 def fetch_og_image(article_url):
-    """Try og:image → twitter:image → Microlink preview → favicon (non-aggregators)."""
-    # 1. Try og:image from HTML
     try:
         r = requests.get(article_url, timeout=15, headers=HEADERS, allow_redirects=True)
         if r.ok:
@@ -219,7 +316,6 @@ def fetch_og_image(article_url):
     except Exception as e:
         log.warning(f"og:image fetch failed: {e}")
 
-    # 2. Microlink — генерирует preview-картинку для любой страницы (в т.ч. Product Hunt)
     try:
         api = f"https://api.microlink.io/?url={article_url}&embed=image.url&meta=false"
         r = requests.get(api, timeout=20, headers=HEADERS)
@@ -232,17 +328,20 @@ def fetch_og_image(article_url):
     except Exception as e:
         log.warning(f"Microlink failed: {e}")
 
-    # 3. Fallback: favicon для не-агрегаторов
     domain = source_domain(article_url)
-    AGGREGATORS = {"producthunt.com", "news.ycombinator.com", "reddit.com",
-                   "hnrss.org", "betalist.com", "indiehackers.com"}
+    AGGREGATORS = {
+        "producthunt.com", "news.ycombinator.com", "reddit.com",
+        "hnrss.org", "betalist.com", "indiehackers.com",
+    }
     if domain and "." in domain and domain not in AGGREGATORS:
         fav = f"https://www.google.com/s2/favicons?domain={domain}&sz=256"
         log.info(f"   -> Google favicon: {fav}")
         return fav
 
-    log.info(f"   -> no image source found")
+    log.info("   -> no image source found")
     return None
+
+
 def fetch_articles():
     articles = []
     for url in RSS_FEEDS:
@@ -255,16 +354,25 @@ def fetch_articles():
                 link = e.get("link")
                 if not link:
                     continue
+
                 title = clean_html(e.get("title", ""))
                 summary = clean_html(e.get("summary", e.get("description", "")))
+
                 if len(title) < MIN_TITLE:
                     continue
                 low = (title + " " + summary).lower()
                 if any(b in low for b in BLOCKED):
                     continue
+
                 mtype, murl = extract_media_from_entry(e)
-                articles.append({"title": title[:MAX_TITLE], "summary": summary[:MAX_DESC],
-                    "url": link, "media_type": mtype, "media_url": murl})
+
+                articles.append({
+                    "title": title[:MAX_TITLE],
+                    "summary": summary[:MAX_DESC],
+                    "url": link,
+                    "media_type": mtype,
+                    "media_url": murl,
+                })
         except Exception as ex:
             log.warning(f"Feed failed {url}: {ex}")
     log.info(f"Total articles: {len(articles)}")
@@ -283,7 +391,7 @@ STRICT STRUCTURE (2 paragraphs):
 - Paragraph 1: WHAT it is and WHY it stands out (hook the reader, 2-3 sentences)
 - Paragraph 2: WHO it's for and THE CATCH / pricing / verdict (2-3 sentences)
 
-TOTAL LENGTH: 100-140 words. Keep it TIGHT and PUNCHY — no filler.
+TOTAL LENGTH: 100-140 words. Keep it TIGHT and PUNCHY - no filler.
 
 TONE: Friendly, confident, like explaining to a tech-savvy friend.
 
@@ -299,18 +407,28 @@ Summary: {summary}
 Source: {domain}
 
 Write now."""
+
     models_to_try = [
         "openai/gpt-oss-120b",
         "openai/gpt-oss-20b",
     ]
+
     for model in models_to_try:
         for attempt in range(3):
             try:
                 r = requests.post(
                     "https://api.groq.com/openai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {AI_KEY}", "Content-Type": "application/json"},
-                    json={"model": model, "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.85, "max_tokens": 800}, timeout=90,
+                    headers={
+                        "Authorization": f"Bearer {AI_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.85,
+                        "max_tokens": 800,
+                    },
+                    timeout=90,
                 )
                 if r.status_code in (429, 503):
                     log.warning(f"   [{model}] {r.status_code}, retry in 8s ({attempt+1}/3)")
@@ -453,9 +571,12 @@ def send_media_with_caption(media_type, media_url, caption):
     field = "video" if media_type == "video" else "photo"
     mime = "video/mp4" if media_type == "video" else f"image/{ext if ext != 'jpg' else 'jpeg'}"
     try:
-        r = requests.post(f"{TG_API}/{method}",
+        r = requests.post(
+            f"{TG_API}/{method}",
             data={"chat_id": CHANNEL_ID, "caption": caption, "parse_mode": "HTML"},
-            files={field: (f"media.{ext}", data, mime)}, timeout=120)
+            files={field: (f"media.{ext}", data, mime)},
+            timeout=120,
+        )
         if r.ok:
             log.info(f"   -> {method} uploaded OK ({len(data)} bytes)")
             return True
@@ -466,70 +587,13 @@ def send_media_with_caption(media_type, media_url, caption):
 
 
 def send_text(text):
-    return _tg_post("sendMessage", {"chat_id": CHANNEL_ID, "text": text,
-        "parse_mode": "HTML", "disable_web_page_preview": True})
+    return _tg_post("sendMessage", {
+        "chat_id": CHANNEL_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    })
 
-def normalize_url(url):
-    """Strip tracking params, fragments, trailing slashes."""
-    try:
-        url = url.split("#")[0]
-        url = re.sub(r"[?&](utm_[^&]*|ref=[^&]*|source=[^&]*|fbclid=[^&]*)", "", url)
-        url = url.rstrip("/")
-        url = re.sub(r"^https?://", "", url)
-        url = re.sub(r"^www\.", "", url)
-        return url.lower()
-    except Exception:
-        return url or ""
-
-
-def normalize_title(title):
-    """Lowercase, strip punctuation, collapse spaces."""
-    t = (title or "").lower()
-    t = re.sub(r"[^\w\s]", " ", t)
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
-
-
-def is_duplicate(article, history):
-    """Check if article is a duplicate by URL, title, or image."""
-    url_key = normalize_url(article.get("url", ""))
-    title_key = normalize_title(article.get("title", ""))
-    img_key = normalize_url(article.get("media_url") or "")
-
-    posted_urls = {normalize_url(u) for u in history.get("posted_urls", [])}
-    posted_titles = set(history.get("posted_titles", []))
-    posted_images = set(history.get("posted_images", []))
-
-    if url_key and url_key in posted_urls:
-        log.info(f"   -> SKIP: URL already posted")
-        return True
-
-    if title_key and len(title_key) > 15 and title_key in posted_titles:
-        log.info(f"   -> SKIP: title already posted")
-        return True
-
-    # Image duplication — только если картинка не favicon-aggregator (там могут быть повторы)
-    if img_key and img_key in posted_images:
-        AGGREGATOR_IMG_PARTS = ("google.com/s2/favicons", "duckduckgo.com/ip3/")
-        if not any(p in img_key for p in AGGREGATOR_IMG_PARTS):
-            log.info(f"   -> SKIP: image already posted")
-            return True
-
-    return False
-
-
-def remember_post(article, history):
-    """Add URL, title, image to history."""
-    url_key = normalize_url(article.get("url", ""))
-    title_key = normalize_title(article.get("title", ""))
-    img_key = normalize_url(article.get("media_url") or "")
-
-    if url_key:
-        history.setdefault("posted_urls", []).append(url_key)
-    if title_key:
-        history.setdefault("posted_titles", []).append(title_key)
-    if img_key:
-        history.setdefault("posted_images", []).append(img_key)
 
 def publish(article):
     mtype, murl = article["media_type"], article["media_url"]
@@ -538,31 +602,30 @@ def publish(article):
         og = fetch_og_image(article["url"])
         if og:
             mtype, murl = "image", og
+            article["media_url"] = og
             log.info(f"   -> image found: {og[:70]}")
-            article["media_url"] = og  # сохранить для истории
-
     if SKIP_NO_MEDIA and not murl:
         log.info("   -> skip (no media)")
         return False
-
     rewritten = None
     if USE_AI:
         log.info("   -> AI rewrite via Groq")
         rewritten = ai_rewrite(article["title"], article["summary"], article["url"])
         if not rewritten:
-            log.warning("   -> AI failed — SKIP this article")
+            log.warning("   -> AI failed - SKIP this article")
             return False
         log.info("   -> AI OK")
-
+    else:
+        log.info("   -> AI disabled")
     caption = build_caption(article, rewritten)
     if len(caption) > 1024:
         caption = caption[:1020] + "..."
-
     if mtype and murl:
         if send_media_with_caption(mtype, murl, caption):
             return True
         log.warning("   -> send with media failed, sending text only")
     return send_text(caption)
+
 
 def check_telegram():
     for attempt in range(3):
@@ -587,8 +650,11 @@ def check_groq():
         log.warning("AI OFF - check config")
         return
     try:
-        r = requests.get("https://api.groq.com/openai/v1/models",
-            headers={"Authorization": f"Bearer {AI_KEY}"}, timeout=15)
+        r = requests.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {AI_KEY}"},
+            timeout=15,
+        )
         if r.ok:
             models = r.json().get("data", [])
             log.info(f"Groq: OK | {len(models)} models available | using {AI_MODEL}")
@@ -601,23 +667,29 @@ def check_groq():
 def start_health_server():
     from http.server import BaseHTTPRequestHandler, HTTPServer
     import threading
+
     port = int(os.environ.get("PORT", 10000))
+
     class Handler(BaseHTTPRequestHandler):
         def _respond(self):
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", "20")
             self.end_headers()
+
         def do_GET(self):
             self._respond()
             try:
                 self.wfile.write(b"OK - bot is running")
             except Exception:
                 pass
+
         def do_HEAD(self):
             self._respond()
+
         def log_message(self, *args):
             pass
+
     def run():
         try:
             server = HTTPServer(("0.0.0.0", port), Handler)
@@ -625,6 +697,7 @@ def start_health_server():
             server.serve_forever()
         except Exception as e:
             log.warning(f"Health server failed: {e}")
+
     t = threading.Thread(target=run, daemon=True)
     t.start()
 
@@ -633,8 +706,9 @@ def main():
     setup_logging()
     start_health_server()
     log.info("=" * 60)
-    log.info("Telegram IT News Bot v10.0 - Groq edition")
+    log.info("Telegram IT News Bot v11.0 - Groq edition")
     log.info("=" * 60)
+
     if not BOT_TOKEN or BOT_TOKEN.startswith("PASTE") or BOT_TOKEN.startswith("YOUR_"):
         log.error("bot_token is empty. Check config.json or BOT_TOKEN env.")
         sys.exit(1)
@@ -644,16 +718,21 @@ def main():
     if not RSS_FEEDS:
         log.error("No RSS feeds configured.")
         sys.exit(1)
+
     if not check_telegram():
         sys.exit(1)
+
     check_groq()
+
     post_times = POSTS.get("post_at_times", [])
     if post_times:
         log.info(f"Scheduled posting at: {', '.join(post_times)}")
     else:
         log.info(f"Interval mode: every {INTERVAL}s")
     log.info(f"Feeds: {len(RSS_FEEDS)} | Max/day: {MAX_PER_DAY}")
+
     history = load_history()
+
     try:
         while True:
             try:
@@ -661,10 +740,12 @@ def main():
                     log.info(f"Daily limit reached ({MAX_PER_DAY}). Sleep 30 min.")
                     time.sleep(1800)
                     continue
+
                 if post_times:
                     now = datetime.now()
                     today = now.strftime("%Y-%m-%d")
                     current_hm = now.strftime("%H:%M")
+
                     matched = None
                     for slot in post_times:
                         if slot == current_hm:
@@ -672,17 +753,17 @@ def main():
                             if history.get("last_slot") != key:
                                 matched = key
                                 break
+
                     if matched:
                         log.info(f"Scheduled slot reached: {matched}")
                         articles = fetch_articles()
                         posted = False
                         for art in articles:
-                            if art["url"] in history["posted_urls"]:
+                            if is_duplicate(art, history):
                                 continue
                             log.info(f"Publishing: {art['title'][:70]}")
                             if publish(art):
-                                history["posted_urls"].append(art["url"])
-                                history["posted_urls"] = history["posted_urls"][-2000:]
+                                remember_post(art, history)
                                 increment_today(history)
                                 history["last_slot"] = matched
                                 save_history(history)
@@ -702,23 +783,25 @@ def main():
                     articles = fetch_articles()
                     published = False
                     for art in articles:
-                                    if is_duplicate(art, history):
-                                            continue
-                    log.info(f"Publishing: {art['title'][:70]}")
-                    if publish(art):
-                        history["posted_urls"].append(art["url"])
-                        history["posted_urls"] = history["posted_urls"][-2000:]
-                        increment_today(history)
-                        save_history(history)
-                        log.info(f"Posted. Today: {posted_today(history)}")
-                                                   published = True
+                        if is_duplicate(art, history):
+                            continue
+                        log.info(f"Publishing: {art['title'][:70]}")
+                        if publish(art):
+                            remember_post(art, history)
+                            increment_today(history)
+                            save_history(history)
+                            log.info(f"Posted. Today: {posted_today(history)}")
+                            published = True
                             break
                         else:
                             log.warning("failed, trying next...")
+
                     if not published:
                         log.warning("Nothing new this cycle.")
+
                     log.info(f"Sleep {INTERVAL}s...")
                     time.sleep(INTERVAL)
+
             except KeyboardInterrupt:
                 raise
             except Exception as e:
