@@ -711,7 +711,7 @@ def main():
                         increment_today(history)
                         save_history(history)
                         log.info(f"Posted. Today: {posted_today(history)}")
-                            published = True
+                                               published = True
                             break
                         else:
                             log.warning("failed, trying next...")
