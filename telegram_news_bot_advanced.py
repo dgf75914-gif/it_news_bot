@@ -710,7 +710,7 @@ def main():
                         history["posted_urls"] = history["posted_urls"][-2000:]
                         increment_today(history)
                         save_history(history)
-                        log.info(f"Posted. Today: {posted_today(history)}")                            log.info(f"Posted. Today: {posted_today(history)}")
+                        log.info(f"Posted. Today: {posted_today(history)}")
                             published = True
                             break
                         else:
